@@ -6,146 +6,69 @@ from .llm import LLM
 
 class Planner:
 
-    def __init__(self, tool_registry):
+
+    def __init__(
+            self,
+            tool_registry
+    ):
 
         self.llm = LLM()
         self.tool_registry = tool_registry
 
 
-    def get_tool_description(self):
 
-        tools = []
-
-        for tool in self.tool_registry.list_tools():
-
-            tools.append(
-                f"""
-Tool Name:
-{tool.name}
-
-Description:
-{tool.description}
-"""
-            )
-
-        return "\n".join(tools)
+    def create_plan(
+            self,
+            question,
+            context=None
+    ):
 
 
+        # First try rule-based planning
+        plan = self.rule_based_plan(
+            question,
+            context
+        )
 
-    def create_plan(self, question):
 
-        available_tools = self.get_tool_description()
+        if plan:
 
+            return plan
+
+
+
+        # Otherwise ask LLM
 
         prompt = f"""
-You are a tool selection engine for an AI coding agent.
+Return only JSON.
 
-Your ONLY job is to select the correct tool.
+Choose one tool.
 
-User question:
+Available tools:
+
+search_code
+read_file
+analyze_file
+rag_search
+
+
+Question:
 
 {question}
 
 
-Available tools:
-
-{available_tools}
-
-
-Tool selection rules:
-
-1. If the user asks:
-- Where is something implemented?
-- Where is a feature located?
-- Find code related to something
-
-Use:
-
-search_code
-
-
-2. If the user asks:
-- Explain a specific file
-- Show the contents of a file
-
-Use:
-
-read_file
-
-
-3. If the user asks:
-- Analyze code structure
-- Find classes, functions, imports
-
-Use:
-
-analyze_file
-
-
-4. If additional enterprise knowledge or documentation is required:
-
-Use:
-
-rag_search
-
-
-
-Return ONLY valid JSON.
-
-Required format:
+Format:
 
 {{
-    "tool": "tool_name",
-    "input": "tool_input"
+"tool":"tool_name",
+"input":"value"
 }}
-
-
-Examples:
-
-
-Question:
-Where is authentication implemented?
-
-Response:
-
-{{
-    "tool": "search_code",
-    "input": "authentication"
-}}
-
-
-Question:
-Explain auth.py
-
-Response:
-
-{{
-    "tool": "read_file",
-    "input": "auth.py"
-}}
-
-
-Question:
-Analyze this code
-
-Response:
-
-{{
-    "tool": "analyze_file",
-    "input": "source code"
-}}
-
-
-Important:
-- Do not explain.
-- Do not summarize.
-- Do not rewrite.
-- Do not add markdown.
-- JSON only.
 """
 
 
-        response = self.llm.ask(prompt)
+        response = self.llm.ask(
+            prompt
+        )
 
 
         print("\n========== LLM RESPONSE ==========")
@@ -153,74 +76,140 @@ Important:
         print("==================================\n")
 
 
-        plan = self.parse_json(response)
-
-
-        # Validate tool selection
-
-        allowed_tools = [
-            tool.name
-            for tool in self.tool_registry.list_tools()
-        ]
-
-
-        if plan.get("tool") not in allowed_tools:
-
-            raise Exception(
-                f"Invalid tool selected: {plan.get('tool')}"
-            )
-
-
-        return plan
-
-
-
-    def parse_json(self, response):
-
-        response = response.strip()
-
-
-        # Direct JSON
-
-        try:
-
-            return json.loads(response)
-
-        except json.JSONDecodeError:
-
-            pass
-
-
-
-        # Extract JSON object
-
-        match = re.search(
-            r"\{[\s\S]*?\}",
+        return self.parse_json(
             response
         )
 
 
-        if match:
 
-            json_text = match.group()
+    def rule_based_plan(
+            self,
+            question,
+            context
+    ):
 
 
-            try:
+        # First check previous observations
+        # before looking at the question
 
-                return json.loads(json_text)
+        if context:
 
-            except json.JSONDecodeError:
+            last = context[-1]
 
-                pass
 
+            if "files" in last:
+
+                files = last["files"]
+
+
+                if files:
+
+                    return {
+                        "tool": "read_file",
+                        "input": files[0]
+                    }
+
+
+
+            if "content" in last:
+
+                return {
+                    "tool": "analyze_file",
+                    "input": last["content"]
+                }
+
+
+
+        q = question.lower()
+
+
+
+        if (
+                "where" in q
+                or "implemented" in q
+                or "find" in q
+                or "location" in q
+        ):
+
+            return {
+                "tool": "search_code",
+                "input": self.extract_keyword(q)
+            }
+
+
+
+        return None
+
+
+
+    def extract_keyword(
+            self,
+            question
+    ):
+
+
+        keywords = [
+            "authentication",
+            "login",
+            "database",
+            "payment",
+            "user"
+        ]
+
+
+        for word in keywords:
+
+            if word in question:
+
+                return word
+
+
+        return question
+
+
+
+    def parse_json(
+            self,
+            response
+    ):
+
+
+        try:
+
+            data = json.loads(
+                response
+            )
+
+
+        except Exception:
+
+            match = re.search(
+                r"\{.*\}",
+                response,
+                re.DOTALL
+            )
+
+
+            if not match:
+
+                raise Exception(
+                    "Planner failed"
+                )
+
+
+            data = json.loads(
+                match.group()
+            )
+
+
+        if (
+                "tool" in data
+                and "input" in data
+        ):
+
+            return data
 
 
         raise Exception(
-            f"""
-Planner failed: LLM did not return valid JSON.
-
-LLM Response:
-
-{response}
-"""
+            f"Invalid planner output: {data}"
         )

@@ -3,7 +3,6 @@ import asyncio
 from .agent import CodingAgent
 
 
-
 async def main():
 
     agent = CodingAgent(
@@ -11,9 +10,13 @@ async def main():
     )
 
 
-    await agent.answer(
+    result = await agent.answer(
         "Where is authentication implemented?"
     )
+
+
+    print("\nFinal Answer:")
+    print(result)
 
 
 

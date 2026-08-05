@@ -14,17 +14,25 @@ class AgentExecutor:
 
     async def run(
             self,
-            question
+            question,
+            context=None
     ):
 
+
         plan = self.planner.create_plan(
-            question
+            question,
+            context
         )
+
+
+        print("\nPlan:")
+        print(plan)
 
 
         tool_name = plan.get(
             "tool"
         )
+
 
         tool_input = plan.get(
             "input"
@@ -48,4 +56,7 @@ class AgentExecutor:
         )
 
 
-        return result
+        return {
+            "plan": plan,
+            "result": result
+        }

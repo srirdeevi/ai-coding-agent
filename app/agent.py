@@ -3,6 +3,8 @@ from .analyzer import PythonAnalyzer
 from .planner import Planner
 from .executor import AgentExecutor
 from .tools.default_tools import create_default_registry
+from .agent_loop import AgentLoop
+from .answer import AnswerGenerator
 
 
 
@@ -35,19 +37,31 @@ class CodingAgent:
 
 
 
+        self.agent_loop = AgentLoop(
+            self.executor
+        )
+
+        self.answer_generator = AnswerGenerator()
+
+
+
     async def answer(self, question):
 
         print("\nUser Question:")
         print(question)
 
 
-        result = await self.executor.run(
+        # result = await self.executor.run(
+        #     question
+        # )
+
+        result = await self.agent_loop.run(
             question
         )
 
+        final_answer = self.answer_generator.generate(
+            question,
+            result["observations"]
+        )
 
-        print("\nAgent Result:")
-        print(result)
-
-
-        return result
+        return final_answer

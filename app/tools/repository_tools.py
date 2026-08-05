@@ -46,11 +46,27 @@ class ReadFileTool(Tool):
         self.repository = repository
 
 
-    async def execute(self, file_path: str) -> Any:
+    async def execute(
+            self,
+            file_path: str
+    ) -> Any:
+
+        available_files = self.repository.list_files()
+
+
+        if file_path not in available_files:
+
+            return {
+                "error": "File does not exist",
+                "requested_file": file_path,
+                "available_files": available_files
+            }
+
 
         content = self.repository.read_file(
             file_path
         )
+
 
         return {
             "file": file_path,
