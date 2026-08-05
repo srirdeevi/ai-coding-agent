@@ -1,5 +1,9 @@
-from repository import Repository
-from analyzer import PythonAnalyzer
+from .repository import Repository
+from .analyzer import PythonAnalyzer
+from .planner import Planner
+from .executor import AgentExecutor
+from .tools.default_tools import create_default_registry
+
 
 
 class CodingAgent:
@@ -7,43 +11,43 @@ class CodingAgent:
 
     def __init__(self, project_path):
 
-        self.repository = Repository(project_path)
+        self.repository = Repository(
+            project_path
+        )
+
         self.analyzer = PythonAnalyzer()
 
 
+        self.tool_registry = create_default_registry(
+            self.repository
+        )
 
-    def answer(self, question):
+
+        self.planner = Planner(
+            self.tool_registry
+        )
+
+
+        self.executor = AgentExecutor(
+            self.planner,
+            self.tool_registry
+        )
+
+
+
+    async def answer(self, question):
 
         print("\nUser Question:")
         print(question)
 
 
-        if "authentication" in question.lower():
-
-            files = self.repository.search_code(
-                "auth"
-            )
-
-            print("\nRelevant Files:")
-
-            for file in files:
-                print(file)
+        result = await self.executor.run(
+            question
+        )
 
 
-            for file in files:
-
-                code = self.repository.read_file(file)
-
-                analysis = self.analyzer.analyze(code)
+        print("\nAgent Result:")
+        print(result)
 
 
-                print("\nAnalysis:")
-                print(file)
-                print(analysis)
-
-
-        else:
-
-            print(
-                "I need more information."
-            )
+        return result

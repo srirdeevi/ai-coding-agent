@@ -1,24 +1,46 @@
 import json
 import re
 
-from llm import LLM
+from .llm import LLM
 
 
 class Planner:
 
-
-    def __init__(self):
+    def __init__(self, tool_registry):
 
         self.llm = LLM()
+        self.tool_registry = tool_registry
+
+
+    def get_tool_description(self):
+
+        tools = []
+
+        for tool in self.tool_registry.list_tools():
+
+            tools.append(
+                f"""
+Tool Name:
+{tool.name}
+
+Description:
+{tool.description}
+"""
+            )
+
+        return "\n".join(tools)
 
 
 
     def create_plan(self, question):
 
-        prompt = f"""
-You are an AI coding agent planner.
+        available_tools = self.get_tool_description()
 
-Your job is to decide which tool should be used.
+
+        prompt = f"""
+You are a tool selection engine for an AI coding agent.
+
+Your ONLY job is to select the correct tool.
 
 User question:
 
@@ -27,29 +49,99 @@ User question:
 
 Available tools:
 
-1. search_code
-   - Finds files containing a keyword
-
-2. read_file
-   - Reads the contents of a file
-
-3. analyze_file
-   - Extracts classes, functions, and imports from a file
+{available_tools}
 
 
-Return ONLY JSON.
+Tool selection rules:
 
-Do not write explanations.
-Do not use markdown.
-Do not add ```.
+1. If the user asks:
+- Where is something implemented?
+- Where is a feature located?
+- Find code related to something
 
-Example:
+Use:
+
+search_code
+
+
+2. If the user asks:
+- Explain a specific file
+- Show the contents of a file
+
+Use:
+
+read_file
+
+
+3. If the user asks:
+- Analyze code structure
+- Find classes, functions, imports
+
+Use:
+
+analyze_file
+
+
+4. If additional enterprise knowledge or documentation is required:
+
+Use:
+
+rag_search
+
+
+
+Return ONLY valid JSON.
+
+Required format:
+
+{{
+    "tool": "tool_name",
+    "input": "tool_input"
+}}
+
+
+Examples:
+
+
+Question:
+Where is authentication implemented?
+
+Response:
 
 {{
     "tool": "search_code",
     "input": "authentication"
 }}
 
+
+Question:
+Explain auth.py
+
+Response:
+
+{{
+    "tool": "read_file",
+    "input": "auth.py"
+}}
+
+
+Question:
+Analyze this code
+
+Response:
+
+{{
+    "tool": "analyze_file",
+    "input": "source code"
+}}
+
+
+Important:
+- Do not explain.
+- Do not summarize.
+- Do not rewrite.
+- Do not add markdown.
+- JSON only.
 """
 
 
@@ -61,14 +153,34 @@ Example:
         print("==================================\n")
 
 
-        return self.parse_json(response)
+        plan = self.parse_json(response)
+
+
+        # Validate tool selection
+
+        allowed_tools = [
+            tool.name
+            for tool in self.tool_registry.list_tools()
+        ]
+
+
+        if plan.get("tool") not in allowed_tools:
+
+            raise Exception(
+                f"Invalid tool selected: {plan.get('tool')}"
+            )
+
+
+        return plan
 
 
 
     def parse_json(self, response):
 
-        # First attempt:
-        # direct JSON
+        response = response.strip()
+
+
+        # Direct JSON
 
         try:
 
@@ -80,40 +192,11 @@ Example:
 
 
 
-        # Remove markdown formatting
-
-        cleaned = response.replace(
-            "```json",
-            ""
-        )
-
-        cleaned = cleaned.replace(
-            "```",
-            ""
-        )
-
-        cleaned = cleaned.strip()
-
-
-
-        # Second attempt
-
-        try:
-
-            return json.loads(cleaned)
-
-        except json.JSONDecodeError:
-
-            pass
-
-
-
-        # Extract JSON object from text
+        # Extract JSON object
 
         match = re.search(
-            r"\{.*?\}",
-            cleaned,
-            re.DOTALL
+            r"\{[\s\S]*?\}",
+            response
         )
 
 
@@ -121,10 +204,23 @@ Example:
 
             json_text = match.group()
 
-            return json.loads(json_text)
+
+            try:
+
+                return json.loads(json_text)
+
+            except json.JSONDecodeError:
+
+                pass
 
 
 
         raise Exception(
-            "Planner failed: LLM did not return JSON"
+            f"""
+Planner failed: LLM did not return valid JSON.
+
+LLM Response:
+
+{response}
+"""
         )
