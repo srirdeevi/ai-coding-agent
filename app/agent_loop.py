@@ -1,6 +1,5 @@
 class AgentLoop:
 
-
     def __init__(
             self,
             executor,
@@ -11,7 +10,6 @@ class AgentLoop:
         self.max_steps = max_steps
 
 
-
     async def run(
             self,
             question
@@ -19,11 +17,12 @@ class AgentLoop:
 
         print("\n# Starting Agent Loop")
 
+        context = []
 
-        observations = []
-
-        steps = []
-
+        reflection = {
+            "stop": False,
+            "reason": "Agent has not started."
+        }
 
         for step in range(self.max_steps):
 
@@ -31,67 +30,236 @@ class AgentLoop:
                 f"\nAgent Step: {step + 1}"
             )
 
+            try:
 
-            result = await self.executor.run(
-                question,
-                observations
-            )
+                result = await self.executor.run(
+                    question,
+                    context
+                )
+
+            except Exception as error:
+
+                print("\nTool Execution Error:")
+                print(error)
+
+                failure = {
+                    "error": str(error)
+                }
+
+                context.append(
+                    {
+                        "plan": context[-1]["plan"]
+                        if context
+                        else {},
+                        "result": failure
+                    }
+                )
+
+                reflection = self.reflect(
+                    failure
+                )
+
+                print("\nReflection:")
+                print(reflection)
+
+                if reflection["stop"]:
+                    break
+
+                print(
+                    "\n# Agent will attempt recovery"
+                )
+
+                continue
 
 
             print("\nResult:")
             print(result)
 
 
-            steps.append(
-                result.get(
-                    "plan",
-                    {}
+            plan = result.get(
+                "plan",
+                {}
+            )
+
+            observation = result.get(
+                "result",
+                {}
+            )
+
+
+            # Store both the action and its result.
+            #
+            # This is the agent's working memory.
+
+            context.append(
+                {
+                    "plan": plan,
+                    "result": observation
+                }
+            )
+
+
+            reflection = self.reflect(
+                observation
+            )
+
+            print("\nReflection:")
+            print(reflection)
+
+
+            if reflection["stop"]:
+
+                print(
+                    "\n# Agent has enough evidence"
                 )
-            )
-
-
-            observations.append(
-                result["result"]
-            )
-
-
-            if self.should_stop(result):
 
                 break
 
+
+            print(
+                "\n# Agent needs more evidence"
+            )
 
 
         return {
 
             "question": question,
 
-            "steps": steps,
+            "steps": [
+                item["plan"]
+                for item in context
+                if "plan" in item
+            ],
 
-            "observations": observations
+            "observations": [
+                item["result"]
+                for item in context
+                if "result" in item
+            ],
+
+            "context": context,
+
+            "reflection": reflection
 
         }
 
-    def should_stop(
+
+    def reflect(
             self,
-            result
+            observation
     ):
 
+        """
+        Evaluate the latest observation and determine
+        whether the agent should stop or continue.
+        """
 
-        if not isinstance(result, dict):
-            return False
+        if not isinstance(
+                observation,
+                dict
+        ):
 
-
-        data = result.get(
-            "result",
-            {}
-        )
-
-
-        # Stop after code analysis
-
-        if "analysis" in data:
-
-            return True
+            return {
+                "stop": False,
+                "reason": "Invalid observation."
+            }
 
 
-        return False
+        # -----------------------------------------
+        # Tool execution failure
+        # -----------------------------------------
+
+        if "error" in observation:
+
+            return {
+                "stop": False,
+                "reason": (
+                    "The previous tool execution failed. "
+                    "The agent should recover."
+                )
+            }
+
+
+        # -----------------------------------------
+        # Code analysis completed
+        # -----------------------------------------
+
+        if "analysis" in observation:
+
+            analysis = observation.get(
+                "analysis"
+            )
+
+            if analysis:
+
+                return {
+                    "stop": True,
+                    "reason": (
+                        "Source code was successfully "
+                        "analyzed."
+                    )
+                }
+
+
+        # -----------------------------------------
+        # File successfully read
+        # -----------------------------------------
+
+        if "content" in observation:
+
+            content = observation.get(
+                "content"
+            )
+
+            if content:
+
+                return {
+                    "stop": False,
+                    "reason": (
+                        "Source code was retrieved. "
+                        "Further analysis is required."
+                    )
+                }
+
+
+        # -----------------------------------------
+        # Search results
+        # -----------------------------------------
+
+        if "files" in observation:
+
+            files = observation.get(
+                "files"
+            )
+
+            if files:
+
+                return {
+                    "stop": False,
+                    "reason": (
+                        "Relevant files were found. "
+                        "A source file should be inspected."
+                    )
+                }
+
+
+            return {
+                "stop": False,
+                "reason": (
+                    "No matching files were found. "
+                    "The agent should try another strategy."
+                )
+            }
+
+
+        # -----------------------------------------
+        # Unknown observation
+        # -----------------------------------------
+
+        return {
+            "stop": False,
+            "reason": (
+                "More evidence is required before "
+                "answering."
+            )
+        }
